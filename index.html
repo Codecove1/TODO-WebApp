@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>React TODO App</title>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.22.9/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Poppins', 'sans-serif'],
+          },
+          colors: {
+            primary: {
+              50: '#f0f9ff',
+              100: '#e0f2fe',
+              200: '#bae6fd',
+              300: '#7dd3fc',
+              400: '#38bdf8',
+              500: '#0ea5e9',
+              600: '#0284c7',
+              700: '#0369a1',
+              800: '#075985',
+              900: '#0c4a6e',
+            },
+          },
+          animation: {
+            'bounce-slow': 'bounce 3s infinite',
+            'fadeIn': 'fadeIn 0.5s ease-in-out',
+          },
+          keyframes: {
+            fadeIn: {
+              '0%': { opacity: 0 },
+              '100%': { opacity: 1 },
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .task-enter {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    .task-enter-active {
+      opacity: 1;
+      transform: translateY(0);
+      transition: opacity 300ms, transform 300ms;
+    }
+    .task-exit {
+      opacity: 1;
+    }
+    .task-exit-active {
+      opacity: 0;
+      transform: translateY(-10px);
+      transition: opacity 300ms, transform 300ms;
+    }
+    .shake {
+      animation: shake 0.82s cubic-bezier(.36,.07,.19,.97) both;
+    }
+    @keyframes shake {
+      10%, 90% { transform: translate3d(-1px, 0, 0); }
+      20%, 80% { transform: translate3d(2px, 0, 0); }
+      30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+      40%, 60% { transform: translate3d(4px, 0, 0); }
+    }
+    .confetti {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      background-color: #f00;
+      opacity: 0;
+    }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 flex justify-center items-center min-h-screen p-4 font-sans">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // Custom hook for local storage
+    const useLocalStorage = (key, initialValue) => {
+      const [storedValue, setStoredValue] = useState(() => {
+        try {
+          const item = window.localStorage.getItem(key);
+          return item ? JSON.parse(item) : initialValue;
+        } catch (error) {
+          console.error(error);
+          return initialValue;
+        }
+      });
+
+      useEffect(() => {
+        window.localStorage.setItem(key, JSON.stringify(storedValue));
+      }, [key, storedValue]);
+
+      return [storedValue, setStoredValue];
+    };
+
+    // Task priority component
+    const PriorityBadge = ({ priority }) => {
+      const badges = {
+        high: { bg: 'bg-red-100', text: 'text-red-800', icon: 'fa-solid fa-circle-exclamation' },
+        medium: { bg: 'bg-yellow-100', text: 'text-yellow-800', icon: 'fa-solid fa-arrow-up' },
+        low: { bg: 'bg-green-100', text: 'text-green-800', icon: 'fa-solid fa-arrow-down' },
+      };
+
+      const { bg, text, icon } = badges[priority] || badges.low;
+
+      return (
+        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${bg} ${text}`}>
+          <i className={`${icon} mr-1`}></i>
+          {priority.charAt(0).toUpperCase() + priority.slice(1)}
+        </span>
+      );
+    };
+
+    // Empty state illustration component
+    const EmptyState = () => (
+      <div className="flex flex-col items-center justify-center py-6 animate-fadeIn">
+        <div className="w-24 h-24 mb-4 text-gray-300 flex items-center justify-center">
+          <i className="fas fa-clipboard-list text-5xl text-primary-300"></i>
+        </div>
+        <p className="text-center text-gray-500 mb-1">No tasks yet. Add one above!</p>
+        <p className="text-center text-gray-400 text-sm">Your productivity journey starts here</p>
+      </div>
+    );
+
+    // Confetti animation for completed tasks
+    const createConfetti = (x, y) => {
+      const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff'];
+      const confettiCount = 50;
+      
+      for (let i = 0; i < confettiCount; i++) {
+        const confetti = document.createElement('div');
+        confetti.className = 'confetti';
+        confetti.style.left = `${x}px`;
+        confetti.style.top = `${y}px`;
+        confetti.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+        confetti.style.transform = `rotate(${Math.random() * 360}deg)`;
+        
+        document.body.appendChild(confetti);
+        
+        const animationDuration = Math.random() * 1 + 1;
+        const xMove = (Math.random() - 0.5) * 200;
+        const yMove = Math.random() * -200;
+        
+        confetti.animate([
+          { transform: `translate(0, 0) rotate(0deg)`, opacity: 1 },
+          { transform: `translate(${xMove}px, ${yMove}px) rotate(${Math.random() * 360}deg)`, opacity: 0 }
+        ], {
+          duration: animationDuration * 1000,
+          easing: 'cubic-bezier(0,0,0.2,1)',
+          fill: 'forwards'
+        });
+        
+        setTimeout(() => {
+          document.body.removeChild(confetti);
+        }, animationDuration * 1000);
+      }
+    };
+
+    const TodoApp = () => {
+      const [todos, setTodos] = useLocalStorage('todos', []);
+      const [input, setInput] = useState('');
+      const [editId, setEditId] = useState(null);
+      const [editText, setEditText] = useState('');
+      const [filter, setFilter] = useState('all');
+      const [dueDateInput, setDueDateInput] = useState('');
+      const [priority, setPriority] = useState('medium');
+      const [shake, setShake] = useState(false);
+      const [darkMode, setDarkMode] = useState(false);
+      const [showConfetti, setShowConfetti] = useState(false);
+      const [completedCount, setCompletedCount] = useState(0);
+      const inputRef = useRef(null);
+
+      // Get completed count on mount
+      useEffect(() => {
+        const completed = todos.filter(todo => todo.completed).length;
+        setCompletedCount(completed);
+      }, [todos]);
+
+      // Focus input on mount
+      useEffect(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, []);
+
+      // Handle shake animation
+      useEffect(() => {
+        if (shake) {
+          const timer = setTimeout(() => setShake(false), 820);
+          return () => clearTimeout(timer);
+        }
+      }, [shake]);
+
+      const addTodo = () => {
+        if (input.trim() === '') {
+          setShake(true);
+          return;
+        }
+        
+        const newTodo = {
+          id: Date.now(),
+          text: input,
+          completed: false,
+          createdAt: new Date().toISOString(),
+          priority: priority,
+          dueDate: dueDateInput ? new Date(dueDateInput).toISOString() : null
+        };
+        
+        setTodos([newTodo, ...todos]);
+        setInput('');
+        setDueDateInput('');
+        setPriority('medium');
+      };
+
+      const deleteTodo = (id) => {
+        setTodos(todos.filter(todo => todo.id !== id));
+      };
+
+      const toggleComplete = (id, e) => {
+        const newTodos = todos.map(todo => {
+          if (todo.id === id) {
+            // If marking as complete, trigger confetti
+            if (!todo.completed) {
+              const rect = e.target.getBoundingClientRect();
+              createConfetti(rect.x, rect.y);
+              setCompletedCount(prev => prev + 1);
+            } else {
+              setCompletedCount(prev => prev - 1);
+            }
+            return { ...todo, completed: !todo.completed };
+          }
+          return todo;
+        });
+        setTodos(newTodos);
+      };
+
+      const startEdit = (id, text, dueDate, priority) => {
+        setEditId(id);
+        setEditText(text);
+        setDueDateInput(dueDate ? new Date(dueDate).toISOString().slice(0, 10) : '');
+        setPriority(priority || 'medium');
+      };
+
+      const saveEdit = (id) => {
+        if (editText.trim() === '') return;
+        
+        setTodos(todos.map(todo => 
+          todo.id === id ? { 
+            ...todo, 
+            text: editText, 
+            dueDate: dueDateInput ? new Date(dueDateInput).toISOString() : null,
+            priority: priority
+          } : todo
+        ));
+        
+        setEditId(null);
+        setEditText('');
+        setDueDateInput('');
+        setPriority('medium');
+      };
+
+      const cancelEdit = () => {
+        setEditId(null);
+        setEditText('');
+        setDueDateInput('');
+        setPriority('medium');
+      };
+
+      const clearCompleted = () => {
+        setTodos(todos.filter(todo => !todo.completed));
+        setCompletedCount(0);
+      };
+
+      const filteredTodos = todos.filter(todo => {
+        if (filter === 'all') return true;
+        if (filter === 'active') return !todo.completed;
+        if (filter === 'completed') return todo.completed;
+        return true;
+      });
+
+      const formatDate = (dateStr) => {
+        if (!dateStr) return null;
+        const date = new Date(dateStr);
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      };
+
+      const isDueSoon = (dueDate) => {
+        if (!dueDate) return false;
+        const now = new Date();
+        const due = new Date(dueDate);
+        const diffTime = due - now;
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        return diffDays >= 0 && diffDays <= 2;
+      };
+
+      const isOverdue = (dueDate) => {
+        if (!dueDate) return false;
+        const now = new Date();
+        const due = new Date(dueDate);
+        return due < now;
+      };
+
+      return (
+        <div className={`w-full max-w-md mx-auto bg-white dark:bg-gray-800 rounded-xl shadow-xl overflow-hidden transition-all duration-300 transform ${shake ? 'shake' : ''}`}>
+          {/* Header */}
+          <div className="bg-primary-600 dark:bg-primary-800 p-4 text-white">
+            <div className="flex items-center justify-between mb-2">
+              <h1 className="text-2xl font-bold flex items-center">
+                <i className="fas fa-check-double mr-2"></i>
+                TODO App
+              </h1>
+              <button 
+                onClick={() => setDarkMode(!darkMode)}
+                className="p-2 rounded-full hover:bg-primary-700 transition-colors"
+              >
+                <i className={`fas ${darkMode ? 'fa-sun' : 'fa-moon'}`}></i>
+              </button>
+            </div>
+            <div className="text-primary-100 text-sm flex items-center">
+              <i className="fas fa-chart-simple mr-1"></i>
+              <span>{completedCount} of {todos.length} tasks completed</span>
+            </div>
+          </div>
+
+          {/* Input form */}
+          <div className="p-4 border-b dark:border-gray-700">
+            <div className="flex flex-col mb-3">
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addTodo()}
+                placeholder="What needs to be done?"
+                className="w-full p-3 rounded-t-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all duration-200"
+              />
+              <div className="flex items-center bg-gray-50 dark:bg-gray-700 p-2 rounded-b-md border-x border-b border-gray-300 dark:border-gray-600 space-x-3">
+                <div className="flex items-center">
+                  <i className="fas fa-calendar-alt text-gray-500 dark:text-gray-400 mr-2"></i>
+                  <input
+                    type="date"
+                    value={dueDateInput}
+                    onChange={(e) => setDueDateInput(e.target.value)}
+                    className="text-sm bg-transparent border-0 focus:outline-none dark:text-white"
+                  />
+                </div>
+                <div className="flex items-center">
+                  <i className="fas fa-flag text-gray-500 dark:text-gray-400 mr-2"></i>
+                  <select
+                    value={priority}
+                    onChange={(e) => setPriority(e.target.value)}
+                    className="text-sm bg-transparent border-0 focus:outline-none dark:text-white"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={addTodo}
+              className="w-full bg-primary-500 hover:bg-primary-600 text-white py-2 px-4 rounded-md transition-colors shadow-sm flex items-center justify-center"
+            >
+              <i className="fas fa-plus mr-2"></i>
+              Add Task
+            </button>
+          </div>
+
+          {/* Filters */}
+          <div className="flex border-b dark:border-gray-700 p-2 bg-gray-50 dark:bg-gray-800">
+            <button
+              onClick={() => setFilter('all')}
+              className={`flex-1 py-1 text-sm transition-colors ${filter === 'all' ? 'text-primary-500 font-medium' : 'text-gray-500 dark:text-gray-400'}`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setFilter('active')}
+              className={`flex-1 py-1 text-sm transition-colors ${filter === 'active' ? 'text-primary-500 font-medium' : 'text-gray-500 dark:text-gray-400'}`}
+            >
+              Active
+            </button>
+            <button
+              onClick={() => setFilter('completed')}
+              className={`flex-1 py-1 text-sm transition-colors ${filter === 'completed' ? 'text-primary-500 font-medium' : 'text-gray-500 dark:text-gray-400'}`}
+            >
+              Completed
+            </button>
+          </div>
+
+          {/* Todo list */}
+          <div className="max-h-96 overflow-y-auto">
+            {filteredTodos.length > 0 ? (
+              <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+                {filteredTodos.map(todo => (
+                  <li key={todo.id} className="animate-fadeIn">
+                    {editId === todo.id ? (
+                      <div className="p-4 space-y-2">
+                        <input
+                          type="text"
+                          value={editText}
+                          onChange={(e) => setEditText(e.target.value)}
+                          className="w-full p-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          autoFocus
+                        />
+                        <div className="flex items-center space-x-3">
+                          <div className="flex items-center">
+                            <i className="fas fa-calendar-alt text-gray-500 dark:text-gray-400 mr-2"></i>
+                            <input
+                              type="date"
+                              value={dueDateInput}
+                              onChange={(e) => setDueDateInput(e.target.value)}
+                              className="text-sm bg-transparent border-0 focus:outline-none dark:text-white"
+                            />
+                          </div>
+                          <div className="flex items-center">
+                            <i className="fas fa-flag text-gray-500 dark:text-gray-400 mr-2"></i>
+                            <select
+                              value={priority}
+                              onChange={(e) => setPriority(e.target.value)}
+                              className="text-sm bg-transparent border-0 focus:outline-none dark:text-white"
+                            >
+                              <option value="low">Low</option>
+                              <option value="medium">Medium</option>
+                              <option value="high">High</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div className="flex justify-end space-x-2 mt-2">
+                          <button
+                            onClick={() => saveEdit(todo.id)}
+                            className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm transition-colors"
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={cancelEdit}
+                            className="bg-gray-300 hover:bg-gray-400 text-gray-800 px-3 py-1 rounded text-sm transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={`p-4 ${todo.completed ? 'bg-gray-50 dark:bg-gray-900/30' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'} transition-colors`}>
+                        <div className="flex items-start">
+                          <div className="flex-shrink-0 pt-1">
+                            <input
+                              type="checkbox"
+                              checked={todo.completed}
+                              onChange={(e) => toggleComplete(todo.id, e)}
+                              className="h-5 w-5 rounded text-primary-500 dark:bg-gray-700 focus:ring-primary-500 transition-colors cursor-pointer"
+                            />
+                          </div>
+                          <div className="ml-3 flex-1">
+                            <div className="flex justify-between">
+                              <div className={`text-sm font-medium ${todo.completed ? 'line-through text-gray-500 dark:text-gray-400' : 'text-gray-800 dark:text-gray-200'}`}>
+                                {todo.text}
+                              </div>
+                              <div className="flex-shrink-0 flex space-x-1">
+                                <button
+                                  onClick={() => startEdit(todo.id, todo.text, todo.dueDate, todo.priority)}
+                                  className="text-gray-400 hover:text-primary-500 dark:hover:text-primary-400 transition-colors"
+                                >
+                                  <i className="fas fa-edit"></i>
+                                </button>
+                                <button
+                                  onClick={() => deleteTodo(todo.id)}
+                                  className="text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                                >
+                                  <i className="fas fa-trash-alt"></i>
+                                </button>
+                              </div>
+                            </div>
+                            <div className="mt-1 flex items-center flex-wrap gap-2">
+                              <PriorityBadge priority={todo.priority} />
+                              
+                              {todo.dueDate && (
+                                <span className={`inline-flex items-center text-xs ${
+                                  isOverdue(todo.dueDate) ? 'text-red-600 dark:text-red-400' :
+                                  isDueSoon(todo.dueDate) ? 'text-yellow-600 dark:text-yellow-400' :
+                                  'text-gray-500 dark:text-gray-400'
+                                }`}>
+                                  <i className="fas fa-calendar-day mr-1"></i>
+                                  {isOverdue(todo.dueDate) ? 'Overdue: ' : isDueSoon(todo.dueDate) ? 'Due soon: ' : ''}
+                                  {formatDate(todo.dueDate)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptyState />
+            )}
+          </div>
+
+          {/* Footer */}
+          {todos.length > 0 && (
+            <div className="p-4 bg-gray-50 dark:bg-gray-800 border-t dark:border-gray-700 flex justify-between items-center text-sm text-gray-500 dark:text-gray-400">
+              <div>
+                {todos.filter(t => !t.completed).length} items left
+              </div>
+              {todos.some(t => t.completed) && (
+                <button
+                  onClick={clearCompleted}
+                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 transition-colors"
+                >
+                  Clear completed
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<TodoApp />);
+  </script>
+</body>
+</html>
